@@ -8,6 +8,10 @@
   [('())]
   [((cons x xs)) (list?o xs)])
 
+(define-rules (length<= X Y) (x xs y ys)
+  [('() Y)]
+  [((cons x xs) (cons y ys)) (length<= xs ys)])
+
 (define-rules (length== X Y) (x xs y ys)
   [('() '())]
   [((cons x xs) (cons y ys)) (length== xs ys)])
