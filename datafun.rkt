@@ -5,6 +5,7 @@
 ;; and set comprehensions) in miniKanren.
 ;;
 ;; TODO:
+;; - typing judgment relation?
 ;; - booleans & conditionals?
 ;; - {,in}equality tests?
 ;; - MORE EXAMPLES!
