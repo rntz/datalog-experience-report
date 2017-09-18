@@ -3,7 +3,8 @@
 (require "fast-mk/mk.rkt" "macros.rkt" "lists.rkt")
 
 (provide permuteo remove-allo nubo nodupso subseto nub==
-         ord-uniono uniono unionso ord-unionso)
+         ord-uniono uniono unionso ord-unionso
+         set-addo)
 
 (define (permuteo X Y)
   (fresh () (length== X Y) (permute-helper X Y)))
@@ -32,8 +33,13 @@
    (nubo xs^ ys)])
 
 ;; a list has no duplicates iff its nub is itself.
-;; uh-oh, this predicate has dangerous termination behavior!
-(define (nodupso X) (nubo X X))
+;; ;; uh-oh, this predicate has dangerous termination behavior!
+;; (define (nodupso X) (nubo X X))
+
+;; another version of nodupso.
+(define-rules (nodupso X) (x xs)
+  [('())]
+  [((cons x xs)) (nodupso xs) (¬membero x xs)])
 
 ;; subseto and nub== work perfectly well (in either direction) if you care about
 ;; *all* lists representing a set. but if you care about only duplicate-free
@@ -52,7 +58,12 @@
    (length<= A AB) (length<= B AB)
    (appendo A B A++B)
    (nubo A++B AB)
-   (nodupso A) (nodupso B)))
+   (nodupso A) (nodupso B) ;; ugh
+   ))
+
+(module+ test
+  (define (FAILURE)
+    (run 10 (X Y XY) (length<= XY '(a)) (ord-uniono X Y XY))))
 
 ;; Arbitrary union.
 ;; It's annoying that this duplicates code with ord-uniono.
@@ -73,6 +84,13 @@
      (run 10 (X Y XY) (length<= XY '(a)) (ord-uniono X Y XY))
      (run 10 (X Y XY) (length<= X '(a)) (length<= Y '(a)) (ord-uniono X Y XY))))
 
+  ;; PROBLEM CASE.
+  ;;
+  ;; I'm not sure whether there's anything I can do here.
+  (define (failing-test-ord-uniono)
+    ;; works fine for N < 8. at N = 8, appears to loop.
+    (run 7 (X Y Z XY) (ord-uniono X Y XY) (ord-uniono XY Z '(a))))
+
   (define (test-uniono)
     (list
      (run 10 (X Y XY) (length<= XY '(a)) (uniono X Y XY))
@@ -85,10 +103,19 @@
     (ord-unionso X^ sets)
     (permuteo X^ X)))
 
+;; this seems to work running forward or backward, as long as `sets` is
+;; length-bounded.
 (define (ord-unionso X sets)
+  (fresh (elems)
+   (foralle s sets (length<= s X) (nodupso s))
+   (concato sets elems)
+   (nubo elems X)))
+
+(module+ test
+  (define (test-ord-unionso)
+    (= 7 (length (run 8 (X Y Z) (ord-unionso '(a) (list X Y Z)))))))
+
+(define (set-addo X S X+S)
   (conde
-    [(== sets '()) (== X '())]
-    [(fresh (x xs X^)
-       (== sets (cons x xs))
-       (unionso X^ xs)
-       (ord-uniono x X^ X))]))
+   [(membero X S) (== S X+S)]
+   [(¬membero X S) (inserto X S X+S)]))

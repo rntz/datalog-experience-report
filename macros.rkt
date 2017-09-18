@@ -6,6 +6,10 @@
 
 ;; Some macros that make minikanren more concise and logic-programming-y.
 
+;; a small optimization: when equating two things, if they're already equal as
+;; terms or logic variables, we can use the very fast `unit` rather than `==`.
+(define (fast== X Y) (if (eqv? X Y) unit (== X Y)))
+
 (define-syntax-rule
   (matche* (examinee ...) (fresh-var ...)
            [(pat ...) body ...] ...)
@@ -14,7 +18,7 @@
   ;; corresponding (body ...) on a match.
   (fresh (fresh-var ...)
     (conde
-      [(== examinee pat) ... body ...] ...)))
+      [(fast== examinee pat) ... body ...] ...)))
 
 ;; matche* for a single examinee.
 (define-syntax-rule (matche examinee (fresh-var ...) [pat body ...] ...)
