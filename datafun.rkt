@@ -1,17 +1,15 @@
 #lang racket
 
+;; An implementation of mini-Datafun (WITHOUT types, monotonicity, termination
+;; checking, or semilattice types other than finite sets, but WITH fixed points
+;; and set comprehensions) in miniKanren.
+;;
+;; TODO:
+;; - booleans & conditionals?
+;; - {,in}equality tests?
+;; - MORE EXAMPLES!
+
 (require "fast-mk/mk.rkt" "macros.rkt" "lists.rkt" "sets.rkt")
-
-(define (¬specialo form)
-  (fresh ()
-    (=/= form 'lambda)
-    (=/= form 'quote)
-    (=/= form 'union)
-    (=/= form 'set)))
-
-(define (idento form) (symbolo form) (¬specialo form))
-
-(define (literalo e) (matche e () [#f] [#t] [e (numbero e)]))
 
 ;; could I write a *type-directed* eval?
 (define (evalo expr val env)
