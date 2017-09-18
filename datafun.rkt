@@ -11,6 +11,8 @@
 
 (require "fast-mk/mk.rkt" "macros.rkt" "lists.rkt" "sets.rkt")
 
+(provide (all-defined-out))
+
 ;; could I write a *type-directed* eval?
 (define (evalo expr val env)
   (conde
