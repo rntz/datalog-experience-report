@@ -5,7 +5,7 @@
 (define (membero elem lst)
   (fresh (X Xs)
     (== lst (cons X Xs))
-    (conde [(== X elem)] [(membero elem Xs)])))
+    (conde [(== X elem)] [(=/= X elem) (membero elem Xs)])))
 
 (define (not-membero elem lst)
   (conde

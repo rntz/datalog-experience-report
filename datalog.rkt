@@ -9,7 +9,7 @@
 (define (membero elem lst)
   (fresh (X Xs)
     (== lst (cons X Xs))
-    (conde [(== X elem)] [(membero elem Xs)])))
+    (conde [(== X elem)] [(=/= X elem) (membero elem Xs)])))
 
 ;; Let's begin with my favorite Datalog program:
 ;;
@@ -40,6 +40,7 @@
    [(== known new-known)]
    [(fresh (Inferred)
       (rule known Inferred)
+      ;; we could use not-membero here, but omit it for a simpler example.
       ((closure rule) (cons Inferred known) new-known))]))
 
 ;; Problem: ((closure rule) known X) is an infinite relation! Nothing stops us
