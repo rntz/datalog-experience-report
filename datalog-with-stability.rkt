@@ -28,17 +28,17 @@
       (pred X)
       (forallo Xs pred))]))
 
-(define-syntax-rule (forall-facts known pred (arg ...) body ...)
+(define-syntax-rule (forall (pred arg ...) known body ...)
   (forallo known
     (lambda (fact)
       (conde
        ;; wrong predicate, ignore
        [(fresh (P X)
-          (=/= P pred)
+          (=/= P 'pred)
           (== fact (cons P X)))]
        ;; the predicate we're looking for
        [(fresh (arg ...)
-          (== fact (list pred arg ...))
+          (== fact (list 'pred arg ...))
           body ...)]))))
 
 ;; Let's begin with my favorite Datalog program:
@@ -62,21 +62,35 @@
 ;; "`known` is stable under the rules for `path`"
 (define (stable known)
   (fresh ()
-    (forall-facts known 'edge (X Y)
+    (forall (edge X Y) known
       (membero `(path ,X ,Y) known))
-    (forall-facts known 'path (X Y)
-      (forall-facts known 'path (Y2 Z)
-        (conde
-         ;; Note how, here, we have to manually encode the constraint that the Y
-         ;; in path(X,Y) and the Y in path(Y,Z) are equal!
-         [(=/= Y Y2)]
-         [(== Y Y2) (membero `(path ,X ,Z) known)])))))
+    (forall (path X Y) known
+      (forall (path Y2 Z) known
+        ;; Note how, here, we have to manually encode the constraint that the Y
+        ;; in path(X,Y) and the Y in path(Y,Z) are equal!
+        (conde [(=/= Y Y2)]
+               [(== Y Y2)
+                (membero `(path ,X ,Z) known)])))))
 
 ;; And now, Datalog!
 (define (deduce-all known known^)
   (conde
-   [(== known known^)
-    (stable known)]
+   [(== known known^) (stable known)]
    [(fresh (inferred)
       (deduce known inferred)
       (deduce-all (cons inferred known) known^))]))
+
+
+;; Helpful for testing out examples.
+(define (appendo X Y XY)
+  (conde
+   [(== X '()) (== Y XY)]
+   [(fresh (x xs xys)
+      (== X (cons x xs))
+      (== XY (cons x xys))
+      (appendo xs Y xys))]))
+
+(define (deduce-new known deduced)
+  (fresh (known^)
+   (appendo deduced known known^)
+   (deduce-all known known^)))
