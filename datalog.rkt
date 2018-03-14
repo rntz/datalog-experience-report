@@ -11,19 +11,29 @@
     (== lst (cons X Xs))
     (conde [(== X elem)] [(membero elem Xs)])))
 
+(define (not-membero elem lst)
+  (conde
+   [(== lst '())]
+   [(fresh (X Xs)
+      (=/= elem X)
+      (== lst (cons X Xs))
+      (not-membero elem Xs))]))
+
 (define (assoco key val lst)
   (membero (cons key val) lst))
 
 (define (not-assoco key lst)
-  (fresh (K V Rest)
-    (=/= key K)
-    (== lst (cons (cons K V) Rest))
-    (not-assoco key Rest)))
+  (conde
+   [(== lst '())]
+   [(fresh (K V Rest)
+      (=/= key K)
+      (== lst (cons (cons K V) Rest))
+      (not-assoco key Rest))]))
 
 (define (appendo x y xy)
   (conde
    [(== x '()) (== y xy)]
-   [(fresh (X X-rest XYs)
+   [(fresh (X X-rest XY-rest)
       (== x (cons X X-rest))
       (== xy (cons X XY-rest))
       (appendo X-rest y XY-rest))]))
@@ -87,7 +97,33 @@
 ;; So although miniKanren is a capable logic programming language, I see no way
 ;; to reuse its logic-programming features (unification, in particular) to
 ;; implement Datalog's logic-programming features.
-;;
+
+;; Compiles a single datalog rule to code for a minikanren predicate.
+;; TODO: test this!
+;; this won't go in paper.
+(define (compile-rule conc . premises)
+  (define vars '())
+  (define (lookup! x)
+    (define val (assoc x vars))
+    (if val (cdr val)
+        (let ((val (gensym x)))
+          (set! vars (cons (cons x val) vars))
+          val)))
+  (define (compile-argument arg)
+    (if (symbol? arg) (lookup! arg) arg))
+  (define (compile-atom atom)
+    `(list ',(car atom) ,@(map compile-argument (cdr atom))))
+  (define conc (compile-atom conc))
+  (define premises (map compile-atom premises))
+  `(lambda (known inferred)
+     (fresh ,(map cdr vars)
+        (== inferred ,conc)
+        ,@(map (lambda (premise) `(membero ,premise known)) premises))))
+
+(define (compile-rules rules)
+  `(closure (combine-rules ,@(map compile-rule rules))))
+
+
 ;; What we *can* do is take advantage of miniKanren's Turing-completeness, and
 ;; reimplement unification-with-ground-terms **and its negation** ourselves.
 ;; With these, we can finally implement `stable`.
@@ -97,19 +133,22 @@
 ;; Substitutions always map variables to fully ground terms.
 (define (unifyo schema ground subst-in subst-out)
   (conde
-   [(== schema ground) (== subst-in subst-out)]
+   [(== subst-in subst-out)
+    (conde [(== schema ground)]
+           [(=/= schema ground)
+            (fresh (X)
+              (== schema `',X)
+              (assoco X ground subst-in))])]
+   [(fresh (X)
+      (== schema (list 'quote X))
+      (not-assoco X subst-in)
+      (== subst-out `((,X . ,ground) . ,subst-in)))]
    [(fresh (Xl Xr Gl Gr S)
       (=/= Xl 'quote)
       (== schema (cons Xl Xr))
       (== ground (cons Gl Gr))
       (unifyo Xl Gl subst-in S)
-      (unifyo Xr Gr S subst-out))]
-   [(fresh (X)
-      (== schema `',X)
-      (conde
-       [(assoco X ground subst-in)]
-       [(not-assoco X subst-in)
-        (== subst-out `((,X . ,ground) . ,subst-in))]))]))
+      (unifyo Xr Gr S subst-out))]))
 
 (define (not-unifyo schema ground subst)
   (conde
@@ -133,6 +172,7 @@
 
 (define (substo subst schema ground)
   (conde
+   [(== schema '()) (== ground '())]
    [(symbolo schema) (== schema ground)]
    [(fresh (X)
       (== schema `',X)
@@ -174,22 +214,22 @@
 ;; against the facts in `database`, extending the substitution `subst-in`,
 ;; applying the satisfying substitutions to the schema `result`, produces the
 ;; ground terms in `results`.
-(define (satisfyo result query database subst-in substs-out)
-  (define (searcho schema rest-of-query facts subst-in substs-out)
+(define (satisfyo result query database subst-in results)
+  (define (searcho schema rest-of-query facts subst-in results)
     (conde
-     [(== facts '()) (== substs-out '())]
+     [(== facts '()) (== results '())]
      [(fresh (F Fs)
         (== facts (cons F Fs))
         (conde
          ;; if F doesn't match, continue. NB. this is why we need not-unifyo.
          [(not-unifyo schema F subst-in)
-          (searcho schema rest-of-query Fs subst-in substs-out)]
+          (searcho schema rest-of-query Fs subst-in results)]
          ;; if F does match...
          [(fresh (S S-out1 S-out2)
             (unifyo schema F subst-in S)
             (satisfyo result rest-of-query database S S-out1)
             (searcho schema rest-of-query Fs subst-in S-out2)
-            (appendo S-out1 S-out2 substs-out))]))]))
+            (appendo S-out1 S-out2 results))]))]))
   (conde
    ;; the trivial query is trivially satisfied
    [(== query '())
@@ -200,24 +240,80 @@
    ;; conjunctive query.
    [(fresh (schema rest-of-query)
       (== query (cons schema rest-of-query))
-      (searcho schema rest-of-query database subst-in substs-out))]))
+      (searcho schema rest-of-query database subst-in results))]))
 
 ;; Now, finally, we can encode Datalog rules into miniKanren in a way that finds
 ;; *all* their consequences, without infinitely looping, because it knows when
 ;; to stop.
 ;;
 ;; (path-deduce-allo known deduced) makes `deduced` a list of all facts that may
-;; be deduced from the rules for `path`, starting from the database `known`.
-(define (path-deduce-allo known deduced)
+;; be deduced in one step from the rules for `path` applied to the database
+;; `known`.
+(define (path-1step-allo known deduced)
   (fresh (S1 S2)
     (satisfyo '(path 'X 'Z) '((edge 'X 'Z)) known '() S1)
     (satisfyo '(path 'X 'Z) '((path 'X 'Y) (path 'Y 'Z)) known '() S2)
     (appendo S1 S2 deduced)))
 
-;; Whew!
+;; Whew! Let's try this:
+(define (test-path-1step-allo)
+  (displayln (run 10 (R) (path-1step-allo '((edge a b) (edge b c)) R)))
+  (displayln (run 10 (R) (path-1step-allo '((path a b) (path b c)) R))))
 
-;; Note: in miniKanren any relation can run in any direction. However, there is
-;; still a bit of "modedness" about it:
+;; Running (test-path-1step-allo) should print:
+;;
+;; (((path a b) (path b c)))
+;; (((path a c)))
+
+;; Now, let's find the "fixed point" of an all-at-once entailment relation like
+;; path-1step-allo.
+(define ((fixed-point rule) current-db stable-db)
+  (fresh (deduced)
+   (rule current-db deduced)
+   (conde
+    [(subseto deduced current-db) (== current-db stable-db)]
+    [(not-subseto deduced current-db)
+     (fresh (next-db)
+       (updateo deduced current-db next-db)
+       ((fixed-point rule) next-db stable-db))])))
+
+;; We need some helpers here:
+;; (subseto small big) holds if everything in `small` is in `big`.
+(define (subseto small big)
+  (conde
+   [(== small '())]
+   [(fresh (X Rest)
+      (== small (cons X Rest))
+      (membero X big)
+      (subseto Rest big))]))
+
+(define (not-subseto small big)
+  (fresh (X)
+   (membero X small)
+   (not-membero X big)))
+
+;; (updateo new old updated) inserts everything in `new` into `old`, producing
+;; `updated`. If anything in `new` is already in `old`, it avoids inserting it
+;; again.
+(define (updateo new old updated)
+  (conde
+   [(== new '()) (== old updated)]
+   [(fresh (X Xs)
+      (== new (cons X Xs))
+      (conde
+       [(membero X old) (updateo Xs old updated)]
+       [(not-membero X old)
+        (fresh (Rest)
+          (== updated (cons X Rest))
+          (updateo Xs old Rest))]))]))
+
+;; Now, let's test it!
+(define (test [n 2])
+  (define init-db '((edge a b) (edge b c)))
+  (run n (R) ((fixed-point path-1step-allo) init-db R)))
+
+;; Final note: in miniKanren any relation can run in any direction. However,
+;; there is still a bit of "modedness" about it:
 ;;
 ;; - Different directions my have different termination behavior. All directions
 ;; will be complete (generate all true facts), but only some will know when
@@ -225,6 +321,6 @@
 ;;
 ;; - If you are using lists to represent sets or multisets, unless you're very
 ;; careful in how you write your rules, only certain *orderings* of the set will
-;; be produced/accepted by your predicate. path-deduce-allo is an example:
+;; be produced/accepted by your predicate. path-1step-allo is an example:
 ;; although `deduced` is meant to represent a set, the facts in it must/will
 ;; occur in a certain *order*.
